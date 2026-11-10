@@ -1,4 +1,4 @@
-# Progress note (pause at 2026-11-11 ~02:10 IST; resume ~03:30 IST)
+# Progress note (pause at 2026-11-11 03:00 IST; resume ~03:30 IST)
 
 ## State
 - Env: `.venv` (Python 3.12, torch 2.15+cu132). Run code with `PYTHONPATH=src .venv/bin/python ...`.
@@ -6,7 +6,8 @@
 - Targets/folds: `cache/targets/*.png`, `cache/folds.csv` (5 date-grouped folds), `cache/centers.json`.
 - Human reference (fold 0, multi-annotated files): PQ 0.333. Oracle consensus pipeline test: PQ 0.80 (leaky, sanity only).
 - **Primary run** `runs/effv2s_c768_f0` (EffNetV2-S U-Net, 3 heads, 768 crops, bs3, 30 ep, ~4.25 min/epoch):
-  val PQ (v0 postproc) ep3 0.368, ep6 0.388, ep9 0.393, ep12 0.395, ep15 0.406. Log: `runs/runs_effv2s_c768_f0.out`,
+  val PQ (v0 postproc) ep3 0.368, ep6 0.388, ep9 0.393, ep12 0.395, ep15 0.406, ep18 0.410 (best.pt), ep21 0.407, ep24 0.404, ep27 0.408.
+  FP count noisy (+-50), SQ rising 0.661->0.682. Also cache last.pt (ep30) probs and compare vs best.pt after full pp + rescorer. Log: `runs/runs_effv2s_c768_f0.out`,
   `runs/effv2s_c768_f0/log.jsonl`; checkpoints `best.pt` / `last.pt` every 3 epochs. Expected finish ~03:05 IST.
 - **Queued** (`scripts/queue_after_primary.sh`, log `runs/queue.out`): after primary exits ->
   1. cache fold-0 val probs (TTA id+h) -> `cache/probs/effv2s_f0/`
@@ -20,6 +21,9 @@
 2. `scripts/tune_postproc.py --name effv2s_f0 --fold 0 --trials 150 --jobs 4` -> `cache/probs/effv2s_f0/_tuning/best.json`.
 3. `scripts/fit_rescorer.py --name effv2s_f0 --fold 0 --pp cache/probs/effv2s_f0/_tuning/best.json --min-area 50`
    -> `weights/rescorer.pkl`; compare PQ vs no rescoring.
-4. Build submission CSV with `scripts/make_submission.py` (needs rescorer hook added) -> ask user before submitting.
+4. Build submission CSV: `scripts/make_submission.py --ckpt runs/effv2s_c768_f0/best.pt --rescorer weights/rescorer.pkl --tta id h --out submissions/v1.csv`
+   (uses `src/filseg/pipeline.py`; `--pp best.json` instead of `--rescorer` if rescoring doesn't help) -> ask user before submitting.
+   Notebook: `scripts/build_notebook.py` -> `notebooks/pipeline.ipynb` (loads all `weights/*.pt` + `weights/rescorer.pkl`;
+   copy final checkpoints into `weights/` as fp16). Folds copied to `data/folds.csv` for the repo.
 5. When r34 finishes: ensemble probs (effv2s + r34) on fold 0, re-tune, decide final ensemble.
 6. Notebook, README, requirements.txt pin, report figures.
