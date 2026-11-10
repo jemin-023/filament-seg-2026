@@ -1,0 +1,10 @@
+filament-segmentation-2026/
+.venv/
+ext/
+cache/
+runs/
+submissions/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+FABLE_STRATEGY_PROMPT.md
