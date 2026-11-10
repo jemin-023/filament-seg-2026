@@ -1,0 +1,25 @@
+# Progress note (pause at 2026-11-11 ~02:10 IST; resume ~03:30 IST)
+
+## State
+- Env: `.venv` (Python 3.12, torch 2.15+cu132). Run code with `PYTHONPATH=src .venv/bin/python ...`.
+- Scorer `src/filseg/metrics.py` == official self-eval notebook (verified, `tests/test_scorer.py`).
+- Targets/folds: `cache/targets/*.png`, `cache/folds.csv` (5 date-grouped folds), `cache/centers.json`.
+- Human reference (fold 0, multi-annotated files): PQ 0.333. Oracle consensus pipeline test: PQ 0.80 (leaky, sanity only).
+- **Primary run** `runs/effv2s_c768_f0` (EffNetV2-S U-Net, 3 heads, 768 crops, bs3, 30 ep, ~4.25 min/epoch):
+  val PQ (v0 postproc) ep3 0.368, ep6 0.388, ep9 0.393, ep12 0.395, ep15 0.406. Log: `runs/runs_effv2s_c768_f0.out`,
+  `runs/effv2s_c768_f0/log.jsonl`; checkpoints `best.pt` / `last.pt` every 3 epochs. Expected finish ~03:05 IST.
+- **Queued** (`scripts/queue_after_primary.sh`, log `runs/queue.out`): after primary exits ->
+  1. cache fold-0 val probs (TTA id+h) -> `cache/probs/effv2s_f0/`
+  2. cache test probs -> `cache/probs/effv2s_f0_test/`
+  3. train `runs/r34_full1024_f0` (ResNet34, whole disk at 1024, bs2, 30 ep, ~1.6 h)
+- Leaderboard: public top ~0.70 PQ but local official-scorer human agreement is 0.33-0.37 -> LB scale differs;
+  user must approve ONE calibration submission (not yet approved). Kaggle deadline 2026-11-15 06:00 UTC (11:30 IST).
+
+## Next steps (in order)
+1. Check `runs/queue.out` for cache timing (s/img) and that r34 training started.
+2. `scripts/tune_postproc.py --name effv2s_f0 --fold 0 --trials 150 --jobs 4` -> `cache/probs/effv2s_f0/_tuning/best.json`.
+3. `scripts/fit_rescorer.py --name effv2s_f0 --fold 0 --pp cache/probs/effv2s_f0/_tuning/best.json --min-area 50`
+   -> `weights/rescorer.pkl`; compare PQ vs no rescoring.
+4. Build submission CSV with `scripts/make_submission.py` (needs rescorer hook added) -> ask user before submitting.
+5. When r34 finishes: ensemble probs (effv2s + r34) on fold 0, re-tune, decide final ensemble.
+6. Notebook, README, requirements.txt pin, report figures.
