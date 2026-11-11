@@ -15,6 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from filseg.data import TEST_IMG  # noqa: E402
+from filseg.evaluate import load_prob, prob_dir  # noqa: E402
 from filseg.pipeline import Pipeline  # noqa: E402
 from filseg.rle import decode  # noqa: E402
 
@@ -35,20 +36,23 @@ def check(df: pd.DataFrame, n_images: int):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", nargs="+", required=True)
+    ap.add_argument("--ckpt", nargs="+", default=[])
+    ap.add_argument("--probs", default=None, help="use cached test probs cache/probs/<name>/ instead of running models (CPU)")
     ap.add_argument("--pp", default=None)
     ap.add_argument("--rescorer", default=None)
     ap.add_argument("--tta", nargs="+", default=["id", "h"])
     ap.add_argument("--out", required=True)
     ap.add_argument("--img-dir", default=str(TEST_IMG))
     a = ap.parse_args()
-    pipe = Pipeline.from_files(a.ckpt, a.pp, a.rescorer, a.tta)
+    assert a.ckpt or a.probs, "need --ckpt or --probs"
+    pipe = Pipeline.from_files([] if a.probs else a.ckpt, a.pp, a.rescorer, a.tta, device="cpu" if a.probs else "cuda")
     print("post-processing:", pipe.pp.dict(), "| rescorer tau:", pipe.rescorer and pipe.rescorer["tau"])
     stems = sorted(p.stem for p in Path(a.img_dir).glob("*.jpeg"))
     rows, t0 = [], time.time()
     for s in stems:
         img = cv2.imread(str(Path(a.img_dir) / f"{s}.jpeg"), cv2.IMREAD_GRAYSCALE)
-        rows += pipe.rows(s, pipe.instances(img))
+        prob = load_prob(prob_dir(a.probs) / f"{s}.png") if a.probs else None
+        rows += pipe.rows(s, pipe.instances(img, prob))
     total = (time.time() - t0) / len(stems)
     df = pd.DataFrame(rows, columns=["filament_id", "segmentation_rle"])
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
