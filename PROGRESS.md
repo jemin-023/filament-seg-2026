@@ -1,4 +1,4 @@
-# Progress note (pause at 2026-11-11 03:00 IST; resume ~03:30 IST)
+# Progress note (updated 2026-11-11 11:50 IST)
 
 ## State
 - Env: `.venv` (Python 3.12, torch 2.15+cu132). Run code with `PYTHONPATH=src .venv/bin/python ...`.
@@ -16,8 +16,13 @@
 - Leaderboard: public top ~0.70 PQ but local official-scorer human agreement is 0.33-0.37 -> LB scale differs;
   user must approve ONE calibration submission (not yet approved). Kaggle deadline 2026-11-15 06:00 UTC (11:30 IST).
 
+- 11:40 IST: queue had hung all night (its `pgrep -f` wait matched its own launcher shell). Fixed + relaunched 11:41.
+  Primary finished 03:11 (best PQ 0.4098 @ ep18, last ep30 0.4072). Val cache: 141 imgs, 0.64 s/img (2 TTA), 115 s.
+  Then test cache, then r34_full1024_f0 training (log `runs/queue.out`, ~1.6 h -> expected ~13:30 IST).
+- Tuning running: `runs/tune_effv2s_f0.out` (~10 s/trial, 150 trials).
+
 ## Next steps (in order)
-1. Check `runs/queue.out` for cache timing (s/img) and that r34 training started.
+1. (done) queue fixed and running.
 2. `scripts/tune_postproc.py --name effv2s_f0 --fold 0 --trials 150 --jobs 4` -> `cache/probs/effv2s_f0/_tuning/best.json`.
 3. `scripts/fit_rescorer.py --name effv2s_f0 --fold 0 --pp cache/probs/effv2s_f0/_tuning/best.json --min-area 50`
    -> `weights/rescorer.pkl`; compare PQ vs no rescoring.
