@@ -45,3 +45,12 @@ def human_reference(gt: dict) -> Score:
         for (ea, ga), (eb, gb) in itertools.permutations(entries, 2):
             sc.add(eb, gb, ga)
     return sc
+
+
+def pq_sparse(s: dict, r: float = 0.8) -> float:
+    """Expected PQ if each GT filament survives in the (test) labels with prob r (public-notebook sparse-label model).
+    s: Score.summary() dict with sq, tp, fp, fn."""
+    tp, fp, fn = s["tp"], s["fp"], s["fn"]
+    num = r * s["sq"] * tp
+    den = r * tp + 0.5 * fp + 0.5 * (1 - r) * tp + 0.5 * r * fn
+    return num / den if den else 0.0

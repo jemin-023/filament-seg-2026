@@ -32,7 +32,7 @@ def work(stem):
     prob = load_prob(prob_dir(ARGS["name"]) / f"{stem}.png")
     img = cv2.imread(str(TRAIN_IMG / f"{stem}.jpeg"), cv2.IMREAD_GRAYSCALE)
     label = full(prob, PPParams(**ARGS["pp"]))
-    return stem, label, instance_features(label, prob, img), match_rate(label, GT[stem])
+    return stem, label.astype(np.int16), instance_features(label, prob, img), match_rate(label, GT[stem])
 
 
 def make_model():

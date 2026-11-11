@@ -1,0 +1,22 @@
+{
+ "params": {
+  "t_low": 0.30000000000000004,
+  "t_high": 0.6000000000000001,
+  "t_shape": 0.5,
+  "r_close": 2,
+  "dilate": 0,
+  "fill": true,
+  "min_area": 350
+ },
+ "summary": {
+  "pq": 0.4501,
+  "sq": 0.6815,
+  "rq": 0.6605,
+  "tp": 1075,
+  "fp": 522,
+  "fn": 583,
+  "mean_dice_nonzero": 0.7194,
+  "one_to_many": 62,
+  "many_to_one": 35
+ }
+}

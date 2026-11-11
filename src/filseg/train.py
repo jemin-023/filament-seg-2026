@@ -79,6 +79,7 @@ def main():
     ap.add_argument("--val-every", type=int, default=3)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--all-data", action="store_true", help="train on all folds (no holdout)")
+    ap.add_argument("--throttle", type=float, default=0.0, help="sleep this fraction of each step time (quiet mode)")
     ap.add_argument("--max-minutes", type=float, default=1e9)
     cfg = vars(ap.parse_args())
 
@@ -105,12 +106,22 @@ def main():
     base = [g["lr"] for g in opt.param_groups]
     loss_fn = FilamentLoss()
     ema = EMA(model)
-    best, step, t0 = -1.0, 0, time.time()
+    best, step, t0, start = -1.0, 0, time.time(), 0
+    rs = out / "resume.pt"
+    if rs.exists():
+        st = torch.load(rs, map_location="cpu", weights_only=False)
+        model.load_state_dict(st["model"])
+        ema.m.load_state_dict(st["ema"])
+        ema.n = st["ema_n"]
+        opt.load_state_dict(st["opt"])
+        best, step, start = st["best"], st["step"], st["epoch"]
+        print(f"resumed from epoch {start} (best {best:.4f})", flush=True)
     log = open(out / "log.jsonl", "a")
-    for ep in range(cfg["epochs"]):
+    for ep in range(start, cfg["epochs"]):
         model.train()
         te, agg = time.time(), []
         for x, y in dl:
+            ts = time.time()
             x = x.cuda(non_blocking=True).to(memory_format=torch.channels_last)
             y = y.cuda(non_blocking=True)
             f = step / warm if step < warm else 0.5 * (1 + math.cos(math.pi * (step - warm) / (total - warm)))
@@ -126,6 +137,9 @@ def main():
             ema.update(model)
             agg.append([loss.item(), parts["sem"], parts["spine"], parts["bnd"]])
             step += 1
+            if cfg["throttle"] > 0:
+                torch.cuda.synchronize()
+                time.sleep((time.time() - ts) * cfg["throttle"])
         rec = {"epoch": ep + 1, "loss": np.mean(agg, 0).round(4).tolist(), "ep_min": round((time.time() - te) / 60, 2)}
         last = ep + 1 == cfg["epochs"] or (time.time() - t0) / 60 > cfg["max_minutes"]
         if (ep + 1) % cfg["val_every"] == 0 or last:
@@ -139,11 +153,15 @@ def main():
             if r["pq"] > best:
                 best = r["pq"]
                 torch.save(ck, out / "best.pt")
+        torch.save({"model": model.state_dict(), "ema": ema.m.state_dict(), "ema_n": ema.n, "opt": opt.state_dict(),
+                    "best": best, "step": step, "epoch": ep + 1}, out / "resume.tmp")
+        (out / "resume.tmp").replace(rs)
         print(json.dumps({k: v for k, v in rec.items() if k != "val"}), flush=True)
         log.write(json.dumps(rec) + "\n")
         log.flush()
         if last:
             break
+    rs.unlink(missing_ok=True)
     print(f"done. best PQ {best:.4f}  total {(time.time() - t0) / 60:.1f} min")
 
 

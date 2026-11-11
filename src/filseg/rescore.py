@@ -48,7 +48,7 @@ def instance_features(label: np.ndarray, prob: np.ndarray, img: np.ndarray) -> n
         r = np.hypot(yy.mean() + y0 - cy, xx.mean() + x0 - cx) / R
         rows.append([np.log(m.sum()), p.mean(), p.max(), np.quantile(p, 0.9), s.mean(), s.max(), elong, contrast, r,
                      np.log1p((p > 0.7).sum())])
-    return np.asarray(rows, np.float32)
+    return np.asarray(rows, np.float32).reshape(-1, len(FEATURES))
 
 
 def match_rate(label: np.ndarray, gt_entries: list) -> np.ndarray:

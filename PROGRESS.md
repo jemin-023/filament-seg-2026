@@ -1,4 +1,21 @@
-# Progress note (updated 2026-11-11 11:50 IST)
+# Progress note (updated 2026-11-11 18:00 IST)
+
+## 2026-11-11 17:00-18:00 IST (Opus session)
+- **v1 WAS submitted** (13:53 IST): public LB **0.38** (in-sample local 0.449, PQ'(r=0.8) estimate 0.401). Calibration done.
+- r34_full1024_f0 finished: best raw PQ 0.4087 (ep27). Probs cached (r34_f0, r34_f0_test).
+- Ensemble effv2s+r34 (fold 0, mean probs, `scripts/ens_probs.py` -> cache/probs/ens2_f0): pp tuning in progress,
+  0.4454 after 24 trials vs 0.4421 single (in-sample). `runs/tune_ens2_f0.out`.
+- Training queue `scripts/queue_folds.sh` (log runs/queue_folds.out): r34 + effv2s on folds 1-4, alternating, val+test
+  probs cached after each. Resumable (train.py now writes runs/<name>/resume.pt each epoch). Run with setsid (a session
+  teardown killed the first launch). ~15 h total.
+- LB investigation: current public LB has many post-fix Nov entries at 0.56-0.70. Top-scored public kernels by score:
+  please-fix-the-leaderboard, foysal, 0-9-baseline = ALL-EMPTY masks (PPP8) -> evaluator exploit. lamhuy "0.55" = hardcoded
+  payload of unknown origin (not used). Kernel outputs in research/kernel_outputs/.
+  Cross-PQ of submissions: ours vs dariush (LB 0.39) 0.77 (agree); both vs lamhuy ~0.50; lamhuy masks 1.27x our area, 7.5 inst/img.
+- Local val: our pred area = 0.815x GT, 6.63 vs 7.61 inst/entry, yet dilate 0 is PQ-optimal on single- AND multi-annotator
+  images (dil+1 -0.022, dil+2 -0.075; scripts/subset_grid.py). Union-of-annotators GT sim (scripts/union_gt_grid.py): optimum
+  shifts to dil+1 / 8 inst/img but PQ still ~0.44. => no legit local GT definition explains LB 0.55+.
+
 
 ## State
 - Env: `.venv` (Python 3.12, torch 2.15+cu132). Run code with `PYTHONPATH=src .venv/bin/python ...`.
@@ -37,3 +54,19 @@
    PQ beats 0.4494. Then copy r34 weights to weights/ (the notebook loads every weights/*.pt, so remove it if not used).
 3. Execute notebooks/pipeline.ipynb end-to-end on GPU; check its CSV equals the make_submission output.
 4. README (agy), report figures.
+
+## PAUSED 2026-11-11 ~18:10 IST (user moving laptop)
+- Ensemble pp tuning finished: PQ 0.4501 in-sample (configs/pp_ens2_f0.json) vs 0.4421 single effv2s.
+- r34_full1024_f1 stopped at epoch ~10/30; resume.pt saved at the last completed epoch.
+- To resume: `setsid nohup systemd-inhibit --what=sleep:shutdown --why="filseg training" scripts/queue_folds.sh >> runs/queue_folds.out 2>&1 < /dev/null &`
+  (queue skips finished runs and resumes r34 f1 from resume.pt).
+
+## 2026-11-11 18:40 IST — resumed in QUIET mode (user request)
+- Two OOM kills (14 GB RAM): fit_rescorer returning int32 labels with 4 workers + 6 train loader workers. Fixed: labels int16,
+  rescorer/tuning run with --jobs 2 + nice 19; train workers 3.
+- Quiet mode: `train.py --throttle 0.8` (sleeps 0.8x step time -> GPU ~60% duty, ~29 W avg vs 40 W cap; no sudo for power cap).
+  Default in queue_folds.sh via QUIET env; full speed: `QUIET="" scripts/queue_folds.sh`. Runs ~1.8x slower:
+  r34 fold ~3 h, effv2s fold ~3.8 h -> all 8 fold runs ~27 h (ETA ~Nov 12 22:00 IST).
+- rescore.py: instance_features returns (0, F) for empty labels (crashed fit_rescorer before).
+- Ensemble effv2s+r34 fold 0 + rescorer (tau 0.35): PQ 0.4523 (in-sample) vs 0.4494 single -> +0.003, within noise.
+  cache/probs/ens2_f0/_tuning/rescorer.pkl. Needs multi-fold honest eval before adopting.
