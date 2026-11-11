@@ -21,14 +21,18 @@
   Then test cache, then r34_full1024_f0 training (log `runs/queue.out`, ~1.6 h -> expected ~13:30 IST).
 - Tuning running: `runs/tune_effv2s_f0.out` (~10 s/trial, 150 trials).
 
+- 13:30 IST: machine restarted ~12:40 and killed jobs. r34 had reached ep12 (PQ 0.387, kept in runs/r34_full1024_f0_killed_ep12).
+  r34 relaunched from scratch 13:20 IST under systemd-inhibit (log `runs/r34_full1024_f0.out`, ~2 h -> ~15:20 IST). No resume support.
+- PP tuning (150 trials, in-sample fold 0): PQ 0.4421 (configs/pp_effv2s_f0.json). Rescorer (min_area 50, OOF tau 0.35): PQ 0.4494
+  vs 0.4171 un-rescored at min_area 50 (configs/rescorer_effv2s_f0.json, weights/rescorer.pkl). Rescorer kept.
+- v1 submission: submissions/v1_effv2s_rescore.csv (effv2s best.pt + tuned pp + rescorer; built from cached test probs via
+  `make_submission.py --probs effv2s_f0_test`). Format check OK, 1213 rows, 177/180 images, 6.7 inst/img (val: 6.63 -> no shift).
+  NOT submitted; needs user approval. weights/effv2s_c768_f0.pt committed; notebooks/pipeline.ipynb rebuilt (not yet executed end-to-end;
+  run it when GPU is free).
+
 ## Next steps (in order)
-1. (done) queue fixed and running.
-2. `scripts/tune_postproc.py --name effv2s_f0 --fold 0 --trials 150 --jobs 4` -> `cache/probs/effv2s_f0/_tuning/best.json`.
-3. `scripts/fit_rescorer.py --name effv2s_f0 --fold 0 --pp cache/probs/effv2s_f0/_tuning/best.json --min-area 50`
-   -> `weights/rescorer.pkl`; compare PQ vs no rescoring.
-4. Build submission CSV: `scripts/make_submission.py --ckpt runs/effv2s_c768_f0/best.pt --rescorer weights/rescorer.pkl --tta id h --out submissions/v1.csv`
-   (uses `src/filseg/pipeline.py`; `--pp best.json` instead of `--rescorer` if rescoring doesn't help) -> ask user before submitting.
-   Notebook: `scripts/build_notebook.py` -> `notebooks/pipeline.ipynb` (loads all `weights/*.pt` + `weights/rescorer.pkl`;
-   copy final checkpoints into `weights/` as fp16). Folds copied to `data/folds.csv` for the repo.
-5. When r34 finishes: ensemble probs (effv2s + r34) on fold 0, re-tune, decide final ensemble.
-6. Notebook, README, requirements.txt pin, report figures.
+1. User: approve v1 calibration submission (submissions/v1_effv2s_rescore.csv). Repo must be made PUBLIC for final form.
+2. When r34 finishes: cache r34 val+test probs, ensemble (mean) with effv2s on fold 0, re-tune pp + refit rescorer; keep ensemble only if
+   PQ beats 0.4494. Then copy r34 weights to weights/ (the notebook loads every weights/*.pt, so remove it if not used).
+3. Execute notebooks/pipeline.ipynb end-to-end on GPU; check its CSV equals the make_submission output.
+4. README (agy), report figures.
