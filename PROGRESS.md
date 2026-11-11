@@ -32,7 +32,8 @@
 
 ## Next steps (in order)
 1. User: approve v1 calibration submission (submissions/v1_effv2s_rescore.csv). Repo must be made PUBLIC for final form.
-2. When r34 finishes: cache r34 val+test probs, ensemble (mean) with effv2s on fold 0, re-tune pp + refit rescorer; keep ensemble only if
+2. r34 epoch 1 done 13:30 IST (3.2 min/ep, ETA ~15:10). `scripts/queue_after_r34.sh` (log runs/queue_r34.out) then caches
+   cache/probs/r34_f0 + r34_f0_test automatically. Then ensemble (mean) with effv2s on fold 0, re-tune pp + refit rescorer; keep ensemble only if
    PQ beats 0.4494. Then copy r34 weights to weights/ (the notebook loads every weights/*.pt, so remove it if not used).
 3. Execute notebooks/pipeline.ipynb end-to-end on GPU; check its CSV equals the make_submission output.
 4. README (agy), report figures.
