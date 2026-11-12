@@ -78,6 +78,46 @@ def tune(pool, stems, trials, seed=0):
     return st.best_params, st.best_value
 
 
+def fit_rescorer(pool, stems, pp, min_area, fold_of_stem):
+    """Fit the rescorer on instances from `stems` (pp with a low min_area); pick tau on fold-OOF predictions."""
+    rp = dict(pp, min_area=min_area)
+    res = pool.map(_inst, [(s, rp) for s in stems], chunksize=2)
+    X = np.concatenate([r[2] for r in res]); y = np.concatenate([r[3] for r in res])
+    fold_of = np.concatenate([[fold_of_stem[r[0]]] * len(r[3]) for r in res])
+    oof = np.zeros(len(y))
+    for j in set(fold_of):
+        m = fold_of == j
+        oof[m] = (make_model().fit(X[~m], y[~m]) if len(set(fold_of)) > 1 else make_model().fit(X, y)).predict(X[m])
+    offs = np.cumsum([0] + [len(r[3]) for r in res])
+    best_tau, best_pq = 0.0, -1
+    for tau in np.arange(0.0, 0.61, 0.05):
+        sc = Score()
+        for i, r in enumerate(res):
+            pred = [q for q, v in zip(r[1], oof[offs[i]:offs[i + 1]]) if v >= tau]
+            for eid, g in GT[r[0]]:
+                sc.add(eid, g, pred)
+        if sc.pq > best_pq:
+            best_tau, best_pq = round(float(tau), 2), sc.pq
+    print(f"rescorer: {len(y)} instances, tau {best_tau}, fold-OOF PQ {best_pq:.4f}", flush=True)
+    return make_model().fit(X, y), best_tau, rp
+
+
+def final_fit(a, by_fold, fold_of_stem):
+    import pickle
+    from filseg.rescore import FEATURES
+    stems = [s for k in a.folds for s in by_fold[k]]
+    with Pool(a.jobs) as pool:
+        pp, pq = tune(pool, stems, a.trials)
+        sc = evaluate(pool, stems, pp)
+        print(f"final pp (in-sample on {len(stems)} OOF images): {sc.summary()} | {pp}", flush=True)
+        model, tau, rp = fit_rescorer(pool, stems, pp, a.resc_min_area, fold_of_stem)
+    (ROOT / "configs" / "pp_final.json").write_text(json.dumps({"params": pp, "summary": sc.summary(),
+                                                                "source": a.tmpl, "folds": a.folds}, indent=1))
+    with open(ROOT / "weights" / "rescorer.pkl", "wb") as fh:
+        pickle.dump({"model": model, "features": FEATURES, "tau": tau, "pp": rp, "source": a.tmpl}, fh)
+    print("saved configs/pp_final.json and weights/rescorer.pkl")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tmpl", required=True, help="prob cache name template, e.g. ens2_f{}")
@@ -86,6 +126,8 @@ def main():
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--resc-min-area", type=int, default=50)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--final", action="store_true", help="tune + fit on ALL given folds, save configs/pp_final.json "
+                    "and weights/rescorer.pkl (no held-out score)")
     a = ap.parse_args()
     f = pd.read_csv(CACHE / "folds.csv")
     by_fold = {k: f[f.fold == k].stem.tolist() for k in a.folds}
@@ -94,6 +136,10 @@ def main():
             SRC[s] = a.tmpl.format(k)
             SEM[s] = np.round(load_prob(prob_dir(SRC[s]) / f"{s}.png")[:1] * 255).astype(np.uint8)
         GT.update(load_gt(stems))
+    fold_of_stem = f.set_index("stem").fold.to_dict()
+    if a.final:
+        final_fit(a, by_fold, fold_of_stem)
+        return
     pooled = {"pp": Score(), "resc": Score()}
     report = {}
     with Pool(a.jobs) as pool:
@@ -103,29 +149,7 @@ def main():
             te = by_fold[k]
             pp, in_pq = tune(pool, tr, a.trials)
             sc_pp = evaluate(pool, te, pp)
-            # rescorer: instances from the tuned pp but a low min_area; fit + pick tau on train folds only
-            rp = dict(pp, min_area=a.resc_min_area)
-            res_tr = pool.map(_inst, [(s, rp) for s in tr], chunksize=2)
-            X = np.concatenate([r[2] for r in res_tr]); y = np.concatenate([r[3] for r in res_tr])
-            # tau: OOF within the train folds (by fold) so the threshold is not chosen on in-sample predictions
-            fold_of = np.concatenate([[f.set_index("stem").fold[r[0]]] * len(r[3]) for r in res_tr])
-            oof = np.zeros(len(y))
-            for j in set(fold_of):
-                m = fold_of == j
-                oof[m] = make_model().fit(X[~m], y[~m]).predict(X[m]) if (~m).any() and len(set(fold_of)) > 1 \
-                    else make_model().fit(X, y).predict(X[m])
-            offs = np.cumsum([0] + [len(r[3]) for r in res_tr])
-            best_tau, best_pq = 0.0, -1
-            for tau in np.arange(0.0, 0.61, 0.05):
-                sc = Score()
-                for i, r in enumerate(res_tr):
-                    sc_i = oof[offs[i]:offs[i + 1]]
-                    pred = [q for q, v in zip(r[1], sc_i) if v >= tau]
-                    for eid, g in GT[r[0]]:
-                        sc.add(eid, g, pred)
-                if sc.pq > best_pq:
-                    best_tau, best_pq = round(float(tau), 2), sc.pq
-            model = make_model().fit(X, y)
+            model, best_tau, rp = fit_rescorer(pool, tr, pp, a.resc_min_area, fold_of_stem)
             res_te = pool.map(_inst, [(s, rp) for s in te], chunksize=2)
             sc_r = Score()
             for s, insts, x, _ in res_te:

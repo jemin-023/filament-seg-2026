@@ -70,3 +70,53 @@
 - rescore.py: instance_features returns (0, F) for empty labels (crashed fit_rescorer before).
 - Ensemble effv2s+r34 fold 0 + rescorer (tau 0.35): PQ 0.4523 (in-sample) vs 0.4494 single -> +0.003, within noise.
   cache/probs/ens2_f0/_tuning/rescorer.pkl. Needs multi-fold honest eval before adopting.
+
+## 2026-11-11 23:00 IST — full power (user request), honest numbers
+- QUIET="--workers 4" (no throttle): GPU 99% / 40 W. Remaining queue ~12 h (ETA ~Nov 12 11:00-12:00 IST).
+- r34_full1024_f1 done: raw PQ 0.4165 on fold 1.
+- HONEST r34 (folds 0+1, tune on one, score the other): pp+rescorer **0.4312** (f0 0.422, f1 0.440); pp only 0.4295.
+  v1 pp params untuned (2 trials = warm starts) score 0.4336 held-out -> 40-trial Optuna overfits; keep tuning light.
+  Rescorer only helps when tau is chosen fold-OOF (2 train folds: 0.4412 vs 0.4336).
+- infer.predict_probs now averages PROBABILITIES across models (TTA within a model still logit-mean) = same as
+  scripts/ens_probs.py on caches, so pp tuned on cached ensembles transfers exactly to the notebook pipeline.
+- honest_eval.py --final: tune pp + fit rescorer on all OOF folds -> configs/pp_final.json + weights/rescorer.pkl.
+- scripts/after_f1.sh (detached): when effv2s_f1 is cached -> ens2_f1 + honest evals effv2s and ens2 on folds 0+1
+  (runs/honest_effv2s.out, runs/honest_ens2.out).
+
+### Final assembly plan (once all 5 folds x 2 archs are cached)
+1. for k in 0..4: ens_probs --src effv2s_fk r34_fk --out ens2_fk; honest_eval --tmpl ens2_f{} --folds 0 1 2 3 4 (report).
+2. honest_eval --final (trials ~20) -> configs/pp_final.json + weights/rescorer.pkl.
+3. ens_probs over all 10 *_test caches -> ens10_test; make_submission --probs ens10_test --rescorer weights/rescorer.pkl.
+4. copy 10 best.pt to weights/, rebuild + execute notebook, check CSV equality, README, commit. ASK USER before submitting.
+
+## 2026-11-12 00:40 IST — honest 2-fold results (folds 0+1; pp tuned on the other fold, 40 trials)
+| model | pp only | pp+rescorer | per fold (pp) | PQ'(r=.8) |
+|---|---|---|---|---|
+| r34 | 0.4295 | 0.4312 | 0.423 / 0.436 | 0.384 |
+| effv2s | 0.4463 | 0.4454 | 0.4404 / 0.4517 | 0.396 |
+| ens2 (prob mean) | **0.4491** | 0.4465 | 0.4457 / 0.4524 | 0.400 |
+- Honest local >= 0.42 reached on 2 folds (0.449). Ensemble >= effv2s on BOTH folds (+0.003 pooled, small but consistent).
+- Rescorer with tau picked on a single train fold (in-sample) does not help; decide on the 5-fold run where tau is fold-OOF.
+- effv2s_c768_f1 raw best 0.4208 (fold 1).
+
+## 2026-11-12 07:05 IST — all 10 base models done
+- Kaggle (2x T4, fp16) trained effv2s f3/f4: raw 0.4027 / 0.3967 (kernel jeminm/filseg-train-effv2s-f34, outputs in
+  research/kaggle_out/; weights in runs/effv2s_c768_f{3,4}/best.pt). Local: r34 f2 0.4164, effv2s f2 0.4159, r34 f3 0.3966,
+  r34 f4 0.4034. Fold 3 is hardest for both archs (so fp16/Kaggle is fine).
+- Honest effv2s 5-fold (4 train folds, fold-OOF tau) folds 0-2 held-out: pp 0.4421/0.4520/0.4379 -> +rescorer
+  0.4564/0.4658/0.4589 (rescorer now clearly +0.014-0.021). Stopped after fold 2 to free RAM for the ensemble eval.
+- Running: scripts/final_assembly.sh MEMBERS="effv2s r34" OUT=v2_ens10 (log runs/final_assembly_ens10.out) ->
+  honest 5-fold ens eval, final pp/rescorer fit, submissions/v2_ens10.csv.
+- Running: 2nd Kaggle kernel jeminm/filseg-train-effv2sb-1024 (effv2s, 1024 crops, seed 1) on folds 0,1;
+  local speculative scripts/queue_effB.sh trains the same variant on folds 2,3,4 (kill if f0/f1 show no gain).
+- Kaggle dataset jeminm/filseg-bundle (private) = code + targets + folds.
+
+## 2026-11-12 14:10 IST — v3 SUBMITTED: public LB 0.39 (v1 0.38)
+- effv2sB (effv2s, 1024 crops, seed 1, trained on Kaggle T4s) raw per fold 0.4191/0.4359/0.4243/0.4074/0.4105 —
+  beats effv2s c768 on all 5 folds (+0.004..+0.015).
+- Honest 5-fold (pp + rescorer tuned on other 4 folds, all 707 imgs): v2 ens(effv2s,r34) 0.4523; **v3 ens(effv2s,effv2sB,r34) 0.4577**
+  (per fold 0.4594/0.4747/0.4586/0.4435/0.4516; PQ'(r=.8) 0.4095).
+- submissions/v3_ens15.csv: 15 models (3 archs x 5 folds), pp {t_low .15, t_high .8, t_shape .45, r_close 1, fill, min_area 50}
+  + rescorer tau 0.35 (weights/rescorer.pkl, configs/pp_final.json). 1140 rows, 6.3 inst/img. Public LB 0.39.
+- Local->LB gap ~0.07 persists (0.4577 -> 0.39), consistent with sparser test labels (PQ' 0.41).
+- TODO: weights/ (15 ckpts, ~650 MB fp16) + notebook for final reproducibility; README; report.

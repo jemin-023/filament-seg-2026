@@ -1,0 +1,30 @@
+{
+ "params": {
+  "t_low": 0.15,
+  "t_high": 0.8,
+  "t_shape": 0.44999999999999996,
+  "r_close": 1,
+  "dilate": 0,
+  "fill": true,
+  "min_area": 350
+ },
+ "summary": {
+  "pq": 0.4502,
+  "sq": 0.6814,
+  "rq": 0.6607,
+  "tp": 5353,
+  "fp": 2652,
+  "fn": 2846,
+  "mean_dice_nonzero": 0.72,
+  "one_to_many": 318,
+  "many_to_one": 221
+ },
+ "source": "ens_effv2s_effv2sB_r34_f{}",
+ "folds": [
+  0,
+  1,
+  2,
+  3,
+  4
+ ]
+}

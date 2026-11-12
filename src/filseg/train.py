@@ -6,6 +6,7 @@ import argparse
 import copy
 import json
 import math
+import os
 import time
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from .model import build_model
 from .postprocess import simple
 
 VAL_THRS = (0.3, 0.4, 0.5, 0.6)
+AMP = torch.float16 if os.environ.get("FILSEG_AMP") == "fp16" else torch.bfloat16   # T4/P100 lack bf16
 
 
 class EMA:
@@ -79,6 +81,7 @@ def main():
     ap.add_argument("--val-every", type=int, default=3)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--all-data", action="store_true", help="train on all folds (no holdout)")
+    ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--throttle", type=float, default=0.0, help="sleep this fraction of each step time (quiet mode)")
     ap.add_argument("--max-minutes", type=float, default=1e9)
     cfg = vars(ap.parse_args())
@@ -91,7 +94,11 @@ def main():
     va = folds[folds.fold == cfg["fold"]].stem.tolist()
     gt = load_val_gt(va)
 
-    torch.manual_seed(0)
+    torch.manual_seed(cfg["seed"])
+    if cfg["seed"]:
+        import random
+        random.seed(cfg["seed"])
+        np.random.seed(cfg["seed"])
     torch.backends.cudnn.benchmark = True
     ds = FilamentDataset(tr, cfg["mode"], cfg["crop"], cfg["size"], cfg["spi"])
     dl = DataLoader(ds, batch_size=cfg["bs"], shuffle=True, num_workers=cfg["workers"], pin_memory=True,
@@ -105,6 +112,7 @@ def main():
     warm = len(dl)
     base = [g["lr"] for g in opt.param_groups]
     loss_fn = FilamentLoss()
+    scaler = torch.amp.GradScaler("cuda", enabled=AMP == torch.float16)
     ema = EMA(model)
     best, step, t0, start = -1.0, 0, time.time(), 0
     rs = out / "resume.pt"
@@ -127,13 +135,15 @@ def main():
             f = step / warm if step < warm else 0.5 * (1 + math.cos(math.pi * (step - warm) / (total - warm)))
             for g, b in zip(opt.param_groups, base):
                 g["lr"] = max(b * f, 1e-6)
-            with torch.autocast("cuda", dtype=torch.bfloat16):
+            with torch.autocast("cuda", dtype=AMP):
                 logits = model(x)
             loss, parts = loss_fn(logits, y)
             opt.zero_grad(set_to_none=True)
-            loss.backward()
+            scaler.scale(loss).backward()
+            scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
+            scaler.step(opt)
+            scaler.update()
             ema.update(model)
             agg.append([loss.item(), parts["sem"], parts["spine"], parts["bnd"]])
             step += 1
