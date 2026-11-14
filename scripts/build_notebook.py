@@ -16,11 +16,14 @@ runs the whole pipeline on the provided test H-alpha images, writes `submission.
 An optional section re-scores our held-out validation fold with an exact re-implementation of the organizers'
 Panoptic Quality scorer and draws the IoU / Dice / one-to-many / many-to-one distributions.
 
-**Pipeline:** 2048x2048 grayscale image → U-Net ensemble (EfficientNetV2-S and ResNet34 encoders, 3 heads:
-filament mask, spine, boundary) with horizontal-flip TTA → hysteresis instance grouping + thickness calibration
+**Pipeline:** 2048x2048 grayscale image → ensemble of 15 U-Nets (3 recipes × 5 cross-validation folds: EfficientNetV2-S @768 crops,
+EfficientNetV2-S @1024 crops, ResNet34 @ full image; 3 heads: filament mask, spine, boundary) with horizontal-flip TTA, probabilities averaged → hysteresis instance grouping + thickness calibration
 → learned instance rescoring → disjoint filament masks → COCO RLE.
 
-Set `FILSEG_DATA` to the folder that contains `train/` and `test/` if the data is not at the default location."""),
+The competition data is not redistributed in this repo: put the Kaggle download at
+`filament-segmentation-2026/MAGFiLO_1.0_Kaggle_2026/` (containing `train/` and `test/`) or set `FILSEG_DATA` to that folder.
+Install dependencies with `pip install -r requirements.txt`. The committed `submission.csv` is the exact file we submitted; running
+section 2 regenerates it (a GPU is recommended: ~0.3 s/image)."""),
     code("""import os, sys, time, json
 from pathlib import Path
 ROOT = Path.cwd().parent if Path.cwd().name == "notebooks" else Path.cwd()
@@ -51,19 +54,23 @@ print(f"{len(stems)} images -> {len(sub)} filaments ({len(sub)/len(stems):.1f}/i
 print(f"end-to-end {elapsed/len(stems):.2f} s/image on {DEVICE}; per stage:", pipe.timing_summary())
 sub.head()"""),
     md("## 3. Validation on the held-out fold (optional, ~5 min on GPU)\n"
-       "Fold 0 of our date-grouped split was never used for training the fold-0 models. Each annotator of an "
+       "Fold 0 of our date-grouped split was never used for training the three `*_f0` models, so this section uses only those "
+       "(the full 15-model ensemble has seen every training image). Post-processing parameters and the rescorer were tuned on "
+       "out-of-fold predictions of the other folds (honest 5-fold PQ of the full ensemble: 0.458). Each annotator of an "
        "image is a separate ground-truth entry, exactly as in the organizers' self-evaluation notebook."),
     code("""RUN_VALIDATION = True
 if RUN_VALIDATION:
     from filseg.evaluate import load_gt, human_reference, score_labels
     from filseg.viz import plot_distributions
+    val_pipe = Pipeline.from_files([c for c in CKPTS if c.endswith("_f0.pt")], rescorer_pkl=WEIGHTS / "rescorer.pkl",
+                                   tta=("id", "h"), device=DEVICE)
     folds = pd.read_csv(CACHE / "folds.csv") if (CACHE / "folds.csv").exists() else pd.read_csv(ROOT / "data" / "folds.csv")
     val = folds[folds.fold == 0].stem.tolist()
     gt = load_gt(val)
     labels = {}
     for s in val:
         img = cv2.imread(str(TRAIN_IMG / f"{s}.jpeg"), cv2.IMREAD_GRAYSCALE)
-        labels[s] = pipe.instances(img)
+        labels[s] = val_pipe.instances(img)
     model_score = score_labels(labels, gt)
     multi = [s for s in val if len(gt[s]) > 1]
     human = human_reference({s: gt[s] for s in multi})
