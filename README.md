@@ -22,6 +22,15 @@ cross-validation; public leaderboard 0.39.
 - Post-processing: hysteresis thresholding, shape-aware instance grouping, thin-structure calibration (`src/filseg/postprocess.py`),
   then a learned instance rescorer (gradient boosting, `weights/rescorer.pkl`) that drops likely false-positive instances; disjoint masks → COCO RLE.
 
+## Example result
+
+Held-out validation image (`20111112193254Bh`, never seen in training by these 3 fold-0 models). Coloured fill = our predicted filament instances, white outlines = annotator masks. Picked as a favourable example (Dice 0.79 vs. annotators); typical fold-0 PQ is 0.47. Faint/thin structures (e.g. the long faint filament at lower right) are the main failure mode.
+
+![Full-disk prediction](docs/showcase_full.jpg)
+![Zoomed crop](docs/showcase_crop.jpg)
+
+Re-render with `python scripts/render_showcase.py` (writes full-resolution PNGs to `figures/`, which is git-ignored).
+
 ## Layout
 
 | path | content |
